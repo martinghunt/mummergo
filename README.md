@@ -191,6 +191,10 @@ alignment interval.
 nucmer/promer -> delta-filter -> show-coords -> optional show-snps
 ```
 
+`Runner.Run` executes each tool directly with `os/exec`. It does not run a
+temporary shell script. Intermediate files are written in a temporary directory,
+and final coords/SNP outputs are written to the requested output path.
+
 Basic usage:
 
 ```go
@@ -214,6 +218,8 @@ The default runner uses:
 - SNP headers enabled
 - `show-snps -TClr`
 - simplified nucmer output
+- OS default temporary directory
+- temporary intermediate files removed after the run
 
 Options are provided with functional options:
 
@@ -229,6 +235,39 @@ runner := mummergo.NewRunner(
     mummergo.WithShowSnps(true),
     mummergo.WithSnpsHeader(false),
 )
+```
+
+For large runs, or when the system temp directory is not appropriate, choose
+the parent directory used for temporary files:
+
+```go
+runner := mummergo.NewRunner(
+    "ref.fa",
+    "qry.fa",
+    "out.coords",
+    mummergo.WithTempDir("/scratch/my-run"),
+)
+```
+
+To keep intermediate files such as `p.delta` and `p.delta.filter`, use
+`WithKeepTemp(true)` and call `RunWithResult` to get the generated temp
+directory:
+
+```go
+runner := mummergo.NewRunner(
+    "ref.fa",
+    "qry.fa",
+    "out.coords",
+    mummergo.WithTempDir("/scratch/my-run"),
+    mummergo.WithKeepTemp(true),
+)
+
+result, err := runner.RunWithResult()
+if err != nil {
+    return err
+}
+
+fmt.Println(result.TempDir)
 ```
 
 Promer is also supported for command generation/running:
@@ -253,7 +292,7 @@ fmt.Println(runner.ShowCoordsCommand("p.delta.filter", "out.coords"))
 fmt.Println(runner.ShowSnpsCommand("p.delta.filter", "out.coords.snps"))
 ```
 
-Or write the shell script that would be run:
+Or write an equivalent shell script for inspection/debugging:
 
 ```go
 err := runner.WriteScript("run_nucmer.sh", "ref.fa", "qry.fa", "out.coords")
@@ -261,7 +300,7 @@ err := runner.WriteScript("run_nucmer.sh", "ref.fa", "qry.fa", "out.coords")
 
 ## Requirements For `Runner.Run`
 
-`Runner.Run` shells out to external MUMmer binaries. These must be available on
+`Runner.Run` executes external MUMmer binaries. These must be available on
 `PATH`:
 
 - `nucmer` or `promer`

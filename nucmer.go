@@ -1,6 +1,7 @@
 package mummergo
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,9 +29,15 @@ type Runner struct {
 	Verbose      bool
 	Promer       bool
 	ShowSnpsC    bool
+	TempDir      string
+	KeepTemp     bool
 }
 
 type RunnerOption func(*Runner)
+
+type RunResult struct {
+	TempDir string
+}
 
 func NewRunner(ref, qry, outfile string, opts ...RunnerOption) Runner {
 	r := Runner{
@@ -63,70 +70,98 @@ func WithSnpsHeader(v bool) RunnerOption   { return func(r *Runner) { r.SnpsHead
 func WithVerbose(v bool) RunnerOption      { return func(r *Runner) { r.Verbose = v } }
 func WithPromer(v bool) RunnerOption       { return func(r *Runner) { r.Promer = v } }
 func WithShowSnpsC(v bool) RunnerOption    { return func(r *Runner) { r.ShowSnpsC = v } }
+func WithTempDir(v string) RunnerOption    { return func(r *Runner) { r.TempDir = v } }
+func WithKeepTemp(v bool) RunnerOption     { return func(r *Runner) { r.KeepTemp = v } }
 
 func (r Runner) NucmerCommand(ref, qry, outprefix string) string {
+	name, args := r.nucmerArgs(ref, qry, outprefix)
+	return strings.Join(append([]string{name}, args...), " ")
+}
+
+func (r Runner) nucmerArgs(ref, qry, outprefix string) (string, []string) {
 	command := "nucmer"
 	if r.Promer {
 		command = "promer"
 	}
-	parts := []string{command, "-p", outprefix}
+	args := []string{"-p", outprefix}
 	if r.BreakLen != nil {
-		parts = append(parts, "-b", strconv.Itoa(*r.BreakLen))
+		args = append(args, "-b", strconv.Itoa(*r.BreakLen))
 	}
 	if r.DiagDiff != nil && !r.Promer {
-		parts = append(parts, "-D", strconv.Itoa(*r.DiagDiff))
+		args = append(args, "-D", strconv.Itoa(*r.DiagDiff))
 	}
 	if r.DiagFactor != nil {
-		parts = append(parts, "-d", strconv.Itoa(*r.DiagFactor))
+		args = append(args, "-d", strconv.Itoa(*r.DiagFactor))
 	}
 	if r.MaxGap != nil {
-		parts = append(parts, "-g", strconv.Itoa(*r.MaxGap))
+		args = append(args, "-g", strconv.Itoa(*r.MaxGap))
 	}
 	if r.MaxMatch {
-		parts = append(parts, "--maxmatch")
+		args = append(args, "--maxmatch")
 	}
 	if r.MinCluster != nil {
-		parts = append(parts, "-c", strconv.Itoa(*r.MinCluster))
+		args = append(args, "-c", strconv.Itoa(*r.MinCluster))
 	}
 	if !r.Simplify && !r.Promer {
-		parts = append(parts, "--nosimplify")
+		args = append(args, "--nosimplify")
 	}
-	parts = append(parts, ref, qry)
-	return strings.Join(parts, " ")
+	args = append(args, ref, qry)
+	return command, args
 }
 
 func (r Runner) DeltaFilterCommand(infile, outfile string) string {
-	parts := []string{"delta-filter"}
+	args := r.deltaFilterArgs(infile)
+	parts := append([]string{"delta-filter"}, args...)
+	parts = append(parts, ">", outfile)
+	return strings.Join(parts, " ")
+}
+
+func (r Runner) deltaFilterArgs(infile string) []string {
+	args := []string{}
 	if r.MinID != nil {
-		parts = append(parts, "-i", strconv.Itoa(*r.MinID))
+		args = append(args, "-i", strconv.Itoa(*r.MinID))
 	}
 	if r.MinLength != nil {
-		parts = append(parts, "-l", strconv.Itoa(*r.MinLength))
+		args = append(args, "-l", strconv.Itoa(*r.MinLength))
 	}
-	parts = append(parts, infile, ">", outfile)
-	return strings.Join(parts, " ")
+	args = append(args, infile)
+	return args
 }
 
 func (r Runner) ShowCoordsCommand(infile, outfile string) string {
-	parts := []string{"show-coords", "-dTlro"}
-	if !r.CoordsHeader {
-		parts = append(parts, "-H")
-	}
-	parts = append(parts, infile, ">", outfile)
+	args := r.showCoordsArgs(infile)
+	parts := append([]string{"show-coords"}, args...)
+	parts = append(parts, ">", outfile)
 	return strings.Join(parts, " ")
 }
 
+func (r Runner) showCoordsArgs(infile string) []string {
+	args := []string{"-dTlro"}
+	if !r.CoordsHeader {
+		args = append(args, "-H")
+	}
+	args = append(args, infile)
+	return args
+}
+
 func (r Runner) ShowSnpsCommand(infile, outfile string) string {
+	args := r.showSnpsArgs(infile)
+	parts := append([]string{"show-snps"}, args...)
+	parts = append(parts, ">", outfile)
+	return strings.Join(parts, " ")
+}
+
+func (r Runner) showSnpsArgs(infile string) []string {
 	flag := "-Tlr"
 	if r.ShowSnpsC {
 		flag = "-TClr"
 	}
-	parts := []string{"show-snps", flag}
+	args := []string{flag}
 	if !r.SnpsHeader {
-		parts = append(parts, "-H")
+		args = append(args, "-H")
 	}
-	parts = append(parts, infile, ">", outfile)
-	return strings.Join(parts, " ")
+	args = append(args, infile)
+	return args
 }
 
 func (r Runner) WriteScript(scriptName, ref, qry, outfile string) error {
@@ -142,37 +177,92 @@ func (r Runner) WriteScript(scriptName, ref, qry, outfile string) error {
 }
 
 func (r Runner) Run() error {
+	_, err := r.RunWithResult()
+	return err
+}
+
+func (r Runner) RunWithResult() (RunResult, error) {
 	ref, err := filepath.Abs(r.Ref)
 	if err != nil {
-		return err
+		return RunResult{}, err
 	}
 	qry, err := filepath.Abs(r.Qry)
 	if err != nil {
-		return err
+		return RunResult{}, err
 	}
 	outfile, err := filepath.Abs(r.Outfile)
 	if err != nil {
-		return err
+		return RunResult{}, err
 	}
 
-	tmpdir, err := os.MkdirTemp("", "tmp.run_nucmer.")
+	tmpdir, err := os.MkdirTemp(r.TempDir, "tmp.run_nucmer.")
 	if err != nil {
-		return err
+		return RunResult{}, err
 	}
-	defer os.RemoveAll(tmpdir)
+	result := RunResult{TempDir: tmpdir}
+	if !r.KeepTemp {
+		defer os.RemoveAll(tmpdir)
+	}
 
-	script := filepath.Join(tmpdir, "run_nucmer.sh")
-	if err := r.WriteScript(script, ref, qry, outfile); err != nil {
-		return err
+	name, args := r.nucmerArgs(ref, qry, "p")
+	if err := r.runCommand(tmpdir, "", name, args...); err != nil {
+		return result, err
 	}
-	cmd := exec.Command("bash", script)
-	cmd.Dir = tmpdir
-	output, err := cmd.CombinedOutput()
+
+	filteredDelta := filepath.Join(tmpdir, "p.delta.filter")
+	if err := r.runCommand(tmpdir, filteredDelta, "delta-filter", r.deltaFilterArgs("p.delta")...); err != nil {
+		return result, err
+	}
+
+	if err := r.runCommand(tmpdir, outfile, "show-coords", r.showCoordsArgs("p.delta.filter")...); err != nil {
+		return result, err
+	}
+
+	if r.ShowSnps {
+		if err := r.runCommand(tmpdir, outfile+".snps", "show-snps", r.showSnpsArgs("p.delta.filter")...); err != nil {
+			return result, err
+		}
+	}
+
+	return result, nil
+}
+
+func (r Runner) runCommand(dir, stdoutFile, name string, args ...string) error {
 	if r.Verbose {
-		fmt.Print(string(output))
+		fmt.Println("Running command:", strings.Join(append([]string{name}, args...), " "))
 	}
+
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	var f *os.File
+	var err error
+	if stdoutFile == "" {
+		cmd.Stdout = &stdout
+	} else {
+		f, err = os.Create(stdoutFile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		cmd.Stdout = f
+	}
+
+	err = cmd.Run()
 	if err != nil {
-		return fmt.Errorf("command failed: bash %s\n\noutput:\n%s", script, output)
+		return fmt.Errorf("command failed: %s\n\nstdout:\n%s\nstderr:\n%s", strings.Join(append([]string{name}, args...), " "), stdout.String(), stderr.String())
+	}
+	if r.Verbose {
+		if stdout.Len() > 0 {
+			fmt.Print(stdout.String())
+		}
+		if stderr.Len() > 0 {
+			fmt.Print(stderr.String())
+		}
 	}
 	return nil
 }
