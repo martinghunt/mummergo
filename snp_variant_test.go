@@ -40,7 +40,7 @@ func TestUpdateIndelInsertion(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("UpdateIndel got ok=%v err=%v", ok, err)
 	}
-	want := Variant{Type: Ins, RefStart: 41, RefEnd: 41, RefLength: 300, RefName: "ref", RefBase: ".", QryStart: 99, QryEnd: 100, QryLength: 400, QryName: "qry", QryBase: "AC", Reverse: true}
+	want := Variant{Type: Ins, RefStart: 41, RefEnd: 41, RefLength: 300, RefName: "ref", RefBase: ".", QryStart: 99, QryEnd: 101, QryLength: 400, QryName: "qry", QryBase: "AC", Reverse: true}
 	if !reflect.DeepEqual(insertion, want) {
 		t.Fatalf("insertion got %#v want %#v", insertion, want)
 	}
@@ -52,7 +52,7 @@ func TestUpdateIndelDeletion(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("UpdateIndel got ok=%v err=%v", ok, err)
 	}
-	want := Variant{Type: Del, RefStart: 41, RefEnd: 42, RefLength: 300, RefName: "ref", RefBase: "AC", QryStart: 99, QryEnd: 99, QryLength: 400, QryName: "qry", QryBase: ".", Reverse: false}
+	want := Variant{Type: Del, RefStart: 41, RefEnd: 43, RefLength: 300, RefName: "ref", RefBase: "AC", QryStart: 99, QryEnd: 99, QryLength: 400, QryName: "qry", QryBase: ".", Reverse: false}
 	if !reflect.DeepEqual(deletion, want) {
 		t.Fatalf("deletion got %#v want %#v", deletion, want)
 	}

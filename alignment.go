@@ -32,22 +32,24 @@ func NewAlignment(line string) (Alignment, error) {
 
 	var a Alignment
 	var err error
-	if a.RefStart, err = parseInt(0); err != nil {
+	refStart, err := parseInt(0)
+	if err != nil {
 		return Alignment{}, alignmentParseError(line)
 	}
-	if a.RefEnd, err = parseInt(1); err != nil {
+	refEnd, err := parseInt(1)
+	if err != nil {
 		return Alignment{}, alignmentParseError(line)
 	}
-	if a.QryStart, err = parseInt(2); err != nil {
+	qryStart, err := parseInt(2)
+	if err != nil {
 		return Alignment{}, alignmentParseError(line)
 	}
-	if a.QryEnd, err = parseInt(3); err != nil {
+	qryEnd, err := parseInt(3)
+	if err != nil {
 		return Alignment{}, alignmentParseError(line)
 	}
-	a.RefStart--
-	a.RefEnd--
-	a.QryStart--
-	a.QryEnd--
+	a.RefStart, a.RefEnd = fromMummerOrientedCoords(refStart, refEnd)
+	a.QryStart, a.QryEnd = fromMummerOrientedCoords(qryStart, qryEnd)
 	if a.HitLengthRef, err = parseInt(4); err != nil {
 		return Alignment{}, alignmentParseError(line)
 	}
@@ -102,6 +104,20 @@ func alignmentParseError(line string) error {
 	return fmt.Errorf("error reading this nucmer line:\n%s", line)
 }
 
+func fromMummerOrientedCoords(start, end int) (int, int) {
+	if start <= end {
+		return start - 1, end
+	}
+	return start - 1, end - 2
+}
+
+func toMummerOrientedEnd(start, end int) int {
+	if start <= end {
+		return end
+	}
+	return end + 2
+}
+
 func (a *Alignment) Swap() {
 	a.RefStart, a.QryStart = a.QryStart, a.RefStart
 	a.RefEnd, a.QryEnd = a.QryEnd, a.RefEnd
@@ -111,11 +127,11 @@ func (a *Alignment) Swap() {
 }
 
 func (a Alignment) QryCoords() Interval {
-	return NewInterval(a.QryStart, a.QryEnd)
+	return NewIntervalFromOriented(a.QryStart, a.QryEnd)
 }
 
 func (a Alignment) RefCoords() Interval {
-	return NewInterval(a.RefStart, a.RefEnd)
+	return NewIntervalFromOriented(a.RefStart, a.RefEnd)
 }
 
 func (a Alignment) OnSameStrand() bool {
@@ -142,9 +158,9 @@ func (a *Alignment) ReverseReference() {
 func (a Alignment) String() string {
 	return strings.Join([]string{
 		strconv.Itoa(a.RefStart + 1),
-		strconv.Itoa(a.RefEnd + 1),
+		strconv.Itoa(toMummerOrientedEnd(a.RefStart, a.RefEnd)),
 		strconv.Itoa(a.QryStart + 1),
-		strconv.Itoa(a.QryEnd + 1),
+		strconv.Itoa(toMummerOrientedEnd(a.QryStart, a.QryEnd)),
 		strconv.Itoa(a.HitLengthRef),
 		strconv.Itoa(a.HitLengthQry),
 		fmt.Sprintf("%.2f", a.PercentIdentity),
@@ -157,8 +173,8 @@ func (a Alignment) String() string {
 }
 
 func (a Alignment) IntersectsVariant(v Variant) bool {
-	return NewInterval(v.RefStart, v.RefEnd).Intersects(a.RefCoords()) &&
-		NewInterval(v.QryStart, v.QryEnd).Intersects(a.QryCoords())
+	return v.refIntervalForIntersection().Intersects(a.RefCoords()) &&
+		v.qryIntervalForIntersection().Intersects(a.QryCoords())
 }
 
 func (a Alignment) QryCoordsFromRefCoord(refCoord int, variants []Variant) (int, bool, error) {
@@ -174,7 +190,7 @@ func (a Alignment) QryCoordsFromRefCoord(refCoord int, variants []Variant) (int,
 		if !a.IntersectsVariant(variants[i]) {
 			continue
 		}
-		if variants[i].RefStart <= refCoord && refCoord <= variants[i].RefEnd {
+		if variants[i].containsRefCoord(refCoord) {
 			return variants[i].QryStart, true, nil
 		}
 		if variants[i].RefStart < refCoord {
@@ -182,7 +198,9 @@ func (a Alignment) QryCoordsFromRefCoord(refCoord int, variants []Variant) (int,
 		}
 	}
 
-	distance := refCoord - min(a.RefStart, a.RefEnd)
+	refRange := a.RefCoords()
+	qryRange := a.QryCoords()
+	distance := refCoord - refRange.Start
 	for _, i := range indelIndexes {
 		if variants[i].Type == Ins {
 			distance += len(variants[i].QryBase)
@@ -192,9 +210,9 @@ func (a Alignment) QryCoordsFromRefCoord(refCoord int, variants []Variant) (int,
 	}
 
 	if a.OnSameStrand() {
-		return min(a.QryStart, a.QryEnd) + distance, false, nil
+		return qryRange.Start + distance, false, nil
 	}
-	return max(a.QryStart, a.QryEnd) - distance, false, nil
+	return qryRange.End - 1 - distance, false, nil
 }
 
 func (a Alignment) RefCoordsFromQryCoord(qryCoord int, variants []Variant) (int, bool, error) {
@@ -210,7 +228,7 @@ func (a Alignment) RefCoordsFromQryCoord(qryCoord int, variants []Variant) (int,
 		if !a.IntersectsVariant(variants[i]) {
 			continue
 		}
-		if variants[i].QryStart <= qryCoord && qryCoord <= variants[i].QryEnd {
+		if variants[i].containsQryCoord(qryCoord) {
 			return variants[i].RefStart, true, nil
 		}
 		if variants[i].QryStart < qryCoord {
@@ -218,7 +236,9 @@ func (a Alignment) RefCoordsFromQryCoord(qryCoord int, variants []Variant) (int,
 		}
 	}
 
-	distance := qryCoord - min(a.QryStart, a.QryEnd)
+	qryRange := a.QryCoords()
+	refRange := a.RefCoords()
+	distance := qryCoord - qryRange.Start
 	for _, i := range indelIndexes {
 		if variants[i].Type == Del {
 			distance += len(variants[i].RefBase)
@@ -228,7 +248,7 @@ func (a Alignment) RefCoordsFromQryCoord(qryCoord int, variants []Variant) (int,
 	}
 
 	if a.OnSameStrand() {
-		return min(a.RefStart, a.RefEnd) + distance, false, nil
+		return refRange.Start + distance, false, nil
 	}
-	return max(a.RefStart, a.RefEnd) - distance, false, nil
+	return refRange.End - 1 - distance, false, nil
 }

@@ -30,8 +30,15 @@ import "github.com/martinghunt/mummergo"
 
 ## Coordinate Conventions
 
-MUMmer output files use 1-based coordinates. `mummergo` stores coordinates as
-0-based integers in structs, matching `pymummer`'s internal behavior.
+MUMmer output files use 1-based closed coordinates. `mummergo` stores
+coordinates internally as 0-based half-open ranges where possible, matching Go
+slice conventions. Single SNP positions are plain 0-based integer positions.
+
+Alignment `RefStart`/`RefEnd` and `QryStart`/`QryEnd` preserve MUMmer's
+orientation. For forward alignments, they are standard half-open endpoints. For
+reverse alignments, `Start` is the first aligned endpoint and `End` is the
+exclusive endpoint in the reverse direction. Use `RefCoords()` and `QryCoords()`
+when you need an unordered half-open interval.
 
 String methods convert back to the MUMmer-style 1-based output format:
 

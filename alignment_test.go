@@ -12,7 +12,7 @@ func join(fields ...string) string {
 
 func TestAlignmentInitNucmer(t *testing.T) {
 	a := MustAlignment(join("1", "100", "2", "200", "101", "202", "42.42", "123", "456", "-1", "0", "ref", "qry", "[FOO]"))
-	if a.RefStart != 0 || a.RefEnd != 99 || a.QryStart != 1 || a.QryEnd != 199 ||
+	if a.RefStart != 0 || a.RefEnd != 100 || a.QryStart != 1 || a.QryEnd != 200 ||
 		a.HitLengthRef != 101 || a.HitLengthQry != 202 || a.PercentIdentity != 42.42 ||
 		a.RefLength != 123 || a.QryLength != 456 || a.Frame != -1 ||
 		a.RefName != "ref" || a.QryName != "qry" {
@@ -22,7 +22,7 @@ func TestAlignmentInitNucmer(t *testing.T) {
 
 func TestAlignmentInitPromer(t *testing.T) {
 	a := MustAlignment(join("1", "1398", "4891054", "4892445", "1398", "1392", "89.55", "93.18", "0.21", "1398", "5349013", "1", "1", "ref", "qry", "[CONTAINED]"))
-	if a.RefStart != 0 || a.RefEnd != 1397 || a.QryStart != 4891053 || a.QryEnd != 4892444 ||
+	if a.RefStart != 0 || a.RefEnd != 1398 || a.QryStart != 4891053 || a.QryEnd != 4892445 ||
 		a.HitLengthRef != 1398 || a.HitLengthQry != 1392 || a.PercentIdentity != 89.55 ||
 		a.RefLength != 1398 || a.QryLength != 5349013 || a.Frame != 1 ||
 		a.RefName != "ref" || a.QryName != "qry" {
@@ -48,7 +48,7 @@ func TestAlignmentCoordsAndStrand(t *testing.T) {
 		join("1", "100", "1", "100", "100", "100", "100.00", "1000", "1000", "1", "1", "ref", "qry"),
 		join("1", "101", "100", "1", "100", "100", "100.00", "1000", "1000", "1", "1", "ref", "qry"),
 	} {
-		if got := MustAlignment(h).QryCoords(); got != (Interval{0, 99}) {
+		if got := MustAlignment(h).QryCoords(); got != (Interval{0, 100}) {
 			t.Fatalf("QryCoords got %#v", got)
 		}
 	}
@@ -56,7 +56,7 @@ func TestAlignmentCoordsAndStrand(t *testing.T) {
 		join("1", "100", "1", "100", "100", "100", "100.00", "1000", "1000", "1", "1", "ref", "ref"),
 		join("100", "1", "100", "1", "100", "100", "100.00", "1000", "1000", "1", "1", "ref", "ref"),
 	} {
-		if got := MustAlignment(h).RefCoords(); got != (Interval{0, 99}) {
+		if got := MustAlignment(h).RefCoords(); got != (Interval{0, 100}) {
 			t.Fatalf("RefCoords got %#v", got)
 		}
 	}

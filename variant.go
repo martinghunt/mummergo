@@ -38,11 +38,9 @@ type Variant struct {
 func NewVariant(s Snp) (Variant, error) {
 	v := Variant{
 		RefStart:  s.RefPos,
-		RefEnd:    s.RefPos,
 		RefLength: s.RefLength,
 		RefName:   s.RefName,
 		QryStart:  s.QryPos,
-		QryEnd:    s.QryPos,
 		QryLength: s.QryLength,
 		QryName:   s.QryName,
 		Reverse:   s.Reverse,
@@ -53,19 +51,53 @@ func NewVariant(s Snp) (Variant, error) {
 		v.Type = Ins
 		v.RefBase = "."
 		v.QryBase = s.QryBase
+		v.RefEnd = s.RefPos
+		v.QryEnd = s.QryPos + 1
 	case s.QryBase == "." && s.RefBase != ".":
 		v.Type = Del
 		v.RefBase = s.RefBase
 		v.QryBase = "."
+		v.RefEnd = s.RefPos + 1
+		v.QryEnd = s.QryPos
 	case s.RefBase != "." && s.QryBase != ".":
 		v.Type = SNP
 		v.RefBase = s.RefBase
 		v.QryBase = s.QryBase
+		v.RefEnd = s.RefPos + 1
+		v.QryEnd = s.QryPos + 1
 	default:
 		return Variant{}, fmt.Errorf("error constructing Variant from Snp:%s", s.String())
 	}
 
 	return v, nil
+}
+
+func (v Variant) refIntervalForIntersection() Interval {
+	if v.RefStart == v.RefEnd {
+		return Interval{Start: v.RefStart, End: v.RefStart + 1}
+	}
+	return Interval{Start: v.RefStart, End: v.RefEnd}
+}
+
+func (v Variant) qryIntervalForIntersection() Interval {
+	if v.QryStart == v.QryEnd {
+		return Interval{Start: v.QryStart, End: v.QryStart + 1}
+	}
+	return Interval{Start: v.QryStart, End: v.QryEnd}
+}
+
+func (v Variant) containsRefCoord(pos int) bool {
+	if v.RefStart == v.RefEnd {
+		return pos == v.RefStart
+	}
+	return v.RefStart <= pos && pos < v.RefEnd
+}
+
+func (v Variant) containsQryCoord(pos int) bool {
+	if v.QryStart == v.QryEnd {
+		return pos == v.QryStart
+	}
+	return v.QryStart <= pos && pos < v.QryEnd
 }
 
 func MustVariant(s Snp) Variant {
@@ -83,17 +115,24 @@ func (v Variant) String() string {
 	}
 	return strings.Join([]string{
 		strconv.Itoa(v.RefStart + 1),
-		strconv.Itoa(v.RefEnd + 1),
+		strconv.Itoa(variantEndForString(v.RefStart, v.RefEnd)),
 		strconv.Itoa(v.RefLength),
 		v.RefName,
 		v.RefBase,
 		strconv.Itoa(v.QryStart + 1),
-		strconv.Itoa(v.QryEnd + 1),
+		strconv.Itoa(variantEndForString(v.QryStart, v.QryEnd)),
 		strconv.Itoa(v.QryLength),
 		v.QryName,
 		v.QryBase,
 		reverse,
 	}, "\t")
+}
+
+func variantEndForString(start, end int) int {
+	if start == end {
+		return start + 1
+	}
+	return end
 }
 
 func (v *Variant) UpdateIndel(s Snp) (bool, error) {
@@ -111,17 +150,17 @@ func (v *Variant) UpdateIndel(s Snp) (bool, error) {
 
 	if v.Type == Ins &&
 		v.RefStart == newVariant.RefStart &&
-		v.QryEnd+1 == newVariant.QryStart {
+		v.QryEnd == newVariant.QryStart {
 		v.QryBase += newVariant.QryBase
-		v.QryEnd++
+		v.QryEnd = newVariant.QryEnd
 		return true, nil
 	}
 
 	if v.Type == Del &&
 		v.QryStart == newVariant.QryStart &&
-		v.RefEnd+1 == newVariant.RefStart {
+		v.RefEnd == newVariant.RefStart {
 		v.RefBase += newVariant.RefBase
-		v.RefEnd++
+		v.RefEnd = newVariant.RefEnd
 		return true, nil
 	}
 
