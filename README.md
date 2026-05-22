@@ -2,6 +2,10 @@
 
 Go library wrapper for [MUMmer](https://mummer.sourceforge.net/), based on the
 core behavior of `pymummer`.
+This repository was developed with substantial coding assistance from
+[OpenAI Codex](https://openai.com/codex), which helped with implementation,
+refactoring, tests, documentation, and benchmarking under human
+direction and review.
 
 The library is intended for Go programs that need to:
 
