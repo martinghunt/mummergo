@@ -187,3 +187,41 @@ func TestRefCoordsFromQryCoord(t *testing.T) {
 		}
 	}
 }
+
+func TestReverseStrandIndelMapping(t *testing.T) {
+	aln := MustAlignment(join("100", "200", "101", "1", "101", "101", "100.00", "300", "300", "1", "1", "ref", "qry"))
+	deletion := MustVariant(MustSnp(join("120", "A", ".", "80", "x", "x", "300", "300", "x", "-1", "ref", "qry")))
+	insertion := MustVariant(MustSnp(join("150", ".", "G", "50", "x", "x", "300", "300", "x", "-1", "ref", "qry")))
+
+	qryCoord, inIndel, err := aln.QryCoordsFromRefCoord(119, []Variant{deletion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qryCoord != 79 || !inIndel {
+		t.Fatalf("QryCoordsFromRefCoord deletion got (%d,%v) want (79,true)", qryCoord, inIndel)
+	}
+
+	refCoord, inIndel, err := aln.RefCoordsFromQryCoord(79, []Variant{deletion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refCoord != 119 || !inIndel {
+		t.Fatalf("RefCoordsFromQryCoord deletion got (%d,%v) want (119,true)", refCoord, inIndel)
+	}
+
+	qryCoord, inIndel, err = aln.QryCoordsFromRefCoord(149, []Variant{insertion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qryCoord != 49 || !inIndel {
+		t.Fatalf("QryCoordsFromRefCoord insertion got (%d,%v) want (49,true)", qryCoord, inIndel)
+	}
+
+	refCoord, inIndel, err = aln.RefCoordsFromQryCoord(49, []Variant{insertion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refCoord != 149 || !inIndel {
+		t.Fatalf("RefCoordsFromQryCoord insertion got (%d,%v) want (149,true)", refCoord, inIndel)
+	}
+}

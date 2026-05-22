@@ -34,6 +34,23 @@ func TestVariantInit(t *testing.T) {
 	}
 }
 
+func TestVariantTypeString(t *testing.T) {
+	tests := []struct {
+		in   VariantType
+		want string
+	}{
+		{SNP, "SNP"},
+		{Del, "DEL"},
+		{Ins, "INS"},
+		{VariantType(99), "VariantType(99)"},
+	}
+	for _, tt := range tests {
+		if got := tt.in.String(); got != tt.want {
+			t.Fatalf("VariantType.String got %q want %q", got, tt.want)
+		}
+	}
+}
+
 func TestUpdateIndelInsertion(t *testing.T) {
 	insertion := MustVariant(MustSnp(join("42", ".", "A", "100", "x", "x", "300", "400", "x", "-1", "ref", "qry")))
 	ok, err := insertion.UpdateIndel(MustSnp(join("42", ".", "C", "101", "x", "x", "300", "400", "x", "-1", "ref", "qry")))

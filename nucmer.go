@@ -2,7 +2,9 @@ package mummergo
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +33,7 @@ type Runner struct {
 	ShowSnpsC    bool
 	TempDir      string
 	KeepTemp     bool
+	LogWriter    io.Writer
 }
 
 type RunnerOption func(*Runner)
@@ -72,10 +75,13 @@ func WithPromer(v bool) RunnerOption       { return func(r *Runner) { r.Promer =
 func WithShowSnpsC(v bool) RunnerOption    { return func(r *Runner) { r.ShowSnpsC = v } }
 func WithTempDir(v string) RunnerOption    { return func(r *Runner) { r.TempDir = v } }
 func WithKeepTemp(v bool) RunnerOption     { return func(r *Runner) { r.KeepTemp = v } }
+func WithLogWriter(w io.Writer) RunnerOption {
+	return func(r *Runner) { r.LogWriter = w }
+}
 
 func (r Runner) NucmerCommand(ref, qry, outprefix string) string {
 	name, args := r.nucmerArgs(ref, qry, outprefix)
-	return strings.Join(append([]string{name}, args...), " ")
+	return shellCommand(name, args...)
 }
 
 func (r Runner) nucmerArgs(ref, qry, outprefix string) (string, []string) {
@@ -111,9 +117,7 @@ func (r Runner) nucmerArgs(ref, qry, outprefix string) (string, []string) {
 
 func (r Runner) DeltaFilterCommand(infile, outfile string) string {
 	args := r.deltaFilterArgs(infile)
-	parts := append([]string{"delta-filter"}, args...)
-	parts = append(parts, ">", outfile)
-	return strings.Join(parts, " ")
+	return shellCommandWithRedirect("delta-filter", args, outfile)
 }
 
 func (r Runner) deltaFilterArgs(infile string) []string {
@@ -130,9 +134,7 @@ func (r Runner) deltaFilterArgs(infile string) []string {
 
 func (r Runner) ShowCoordsCommand(infile, outfile string) string {
 	args := r.showCoordsArgs(infile)
-	parts := append([]string{"show-coords"}, args...)
-	parts = append(parts, ">", outfile)
-	return strings.Join(parts, " ")
+	return shellCommandWithRedirect("show-coords", args, outfile)
 }
 
 func (r Runner) showCoordsArgs(infile string) []string {
@@ -146,9 +148,7 @@ func (r Runner) showCoordsArgs(infile string) []string {
 
 func (r Runner) ShowSnpsCommand(infile, outfile string) string {
 	args := r.showSnpsArgs(infile)
-	parts := append([]string{"show-snps"}, args...)
-	parts = append(parts, ">", outfile)
-	return strings.Join(parts, " ")
+	return shellCommandWithRedirect("show-snps", args, outfile)
 }
 
 func (r Runner) showSnpsArgs(infile string) []string {
@@ -177,11 +177,19 @@ func (r Runner) WriteScript(scriptName, ref, qry, outfile string) error {
 }
 
 func (r Runner) Run() error {
-	_, err := r.RunWithResult()
+	return r.RunContext(context.Background())
+}
+
+func (r Runner) RunContext(ctx context.Context) error {
+	_, err := r.RunWithResultContext(ctx)
 	return err
 }
 
 func (r Runner) RunWithResult() (RunResult, error) {
+	return r.RunWithResultContext(context.Background())
+}
+
+func (r Runner) RunWithResultContext(ctx context.Context) (RunResult, error) {
 	ref, err := filepath.Abs(r.Ref)
 	if err != nil {
 		return RunResult{}, err
@@ -205,21 +213,21 @@ func (r Runner) RunWithResult() (RunResult, error) {
 	}
 
 	name, args := r.nucmerArgs(ref, qry, "p")
-	if err := r.runCommand(tmpdir, "", name, args...); err != nil {
+	if err := r.runCommandContext(ctx, tmpdir, "", name, args...); err != nil {
 		return result, err
 	}
 
 	filteredDelta := filepath.Join(tmpdir, "p.delta.filter")
-	if err := r.runCommand(tmpdir, filteredDelta, "delta-filter", r.deltaFilterArgs("p.delta")...); err != nil {
+	if err := r.runCommandContext(ctx, tmpdir, filteredDelta, "delta-filter", r.deltaFilterArgs("p.delta")...); err != nil {
 		return result, err
 	}
 
-	if err := r.runCommand(tmpdir, outfile, "show-coords", r.showCoordsArgs("p.delta.filter")...); err != nil {
+	if err := r.runCommandContext(ctx, tmpdir, outfile, "show-coords", r.showCoordsArgs("p.delta.filter")...); err != nil {
 		return result, err
 	}
 
 	if r.ShowSnps {
-		if err := r.runCommand(tmpdir, outfile+".snps", "show-snps", r.showSnpsArgs("p.delta.filter")...); err != nil {
+		if err := r.runCommandContext(ctx, tmpdir, outfile+".snps", "show-snps", r.showSnpsArgs("p.delta.filter")...); err != nil {
 			return result, err
 		}
 	}
@@ -228,11 +236,16 @@ func (r Runner) RunWithResult() (RunResult, error) {
 }
 
 func (r Runner) runCommand(dir, stdoutFile, name string, args ...string) error {
+	return r.runCommandContext(context.Background(), dir, stdoutFile, name, args...)
+}
+
+func (r Runner) runCommandContext(ctx context.Context, dir, stdoutFile, name string, args ...string) error {
+	command := shellCommand(name, args...)
 	if r.Verbose {
-		fmt.Println("Running command:", strings.Join(append([]string{name}, args...), " "))
+		fmt.Fprintf(r.verboseWriter(), "Running command: %s\n", command)
 	}
 
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 
 	var stdout bytes.Buffer
@@ -254,15 +267,57 @@ func (r Runner) runCommand(dir, stdoutFile, name string, args ...string) error {
 
 	err = cmd.Run()
 	if err != nil {
-		return fmt.Errorf("command failed: %s\n\nstdout:\n%s\nstderr:\n%s", strings.Join(append([]string{name}, args...), " "), stdout.String(), stderr.String())
+		return fmt.Errorf("command failed: %s: %w\n\nstdout:\n%s\nstderr:\n%s", command, err, stdout.String(), stderr.String())
 	}
 	if r.Verbose {
+		w := r.verboseWriter()
 		if stdout.Len() > 0 {
-			fmt.Print(stdout.String())
+			fmt.Fprint(w, stdout.String())
 		}
 		if stderr.Len() > 0 {
-			fmt.Print(stderr.String())
+			fmt.Fprint(w, stderr.String())
 		}
 	}
 	return nil
+}
+
+func (r Runner) verboseWriter() io.Writer {
+	if r.LogWriter != nil {
+		return r.LogWriter
+	}
+	return os.Stdout
+}
+
+func shellCommand(name string, args ...string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, shellQuote(name))
+	for _, arg := range args {
+		parts = append(parts, shellQuote(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func shellCommandWithRedirect(name string, args []string, outfile string) string {
+	return shellCommand(name, args...) + " > " + shellQuote(outfile)
+}
+
+func shellQuote(s string) string {
+	if s != "" && isShellSafe(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func isShellSafe(s string) bool {
+	for _, r := range s {
+		switch {
+		case 'a' <= r && r <= 'z':
+		case 'A' <= r && r <= 'Z':
+		case '0' <= r && r <= '9':
+		case strings.ContainsRune("_@%+=:,./-", r):
+		default:
+			return false
+		}
+	}
+	return true
 }

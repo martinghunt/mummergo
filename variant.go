@@ -14,10 +14,17 @@ const (
 	Ins VariantType = 3
 )
 
-var VariantTypeNames = map[VariantType]string{
-	SNP: "SNP",
-	Del: "DEL",
-	Ins: "INS",
+func (t VariantType) String() string {
+	switch t {
+	case SNP:
+		return "SNP"
+	case Del:
+		return "DEL"
+	case Ins:
+		return "INS"
+	default:
+		return fmt.Sprintf("VariantType(%d)", t)
+	}
 }
 
 type Variant struct {
@@ -66,7 +73,7 @@ func NewVariant(s Snp) (Variant, error) {
 		v.RefEnd = s.RefPos + 1
 		v.QryEnd = s.QryPos + 1
 	default:
-		return Variant{}, fmt.Errorf("error constructing Variant from Snp:%s", s.String())
+		return Variant{}, fmt.Errorf("error constructing Variant from Snp: %s", s.String())
 	}
 
 	return v, nil

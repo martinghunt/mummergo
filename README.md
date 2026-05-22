@@ -87,6 +87,8 @@ for _, aln := range alignments {
 }
 ```
 
+If you already have an `io.Reader`, use `ReadCoordsFrom`.
+
 Header lines and non-tab-delimited lines are skipped, matching the Python
 wrapper behavior.
 
@@ -119,6 +121,8 @@ for _, s := range snps {
     fmt.Println(s.String())
 }
 ```
+
+If you already have an `io.Reader`, use `ReadSnpsFrom`.
 
 ## Variants
 
@@ -218,6 +222,9 @@ if err != nil {
 }
 ```
 
+Use `RunContext` or `RunWithResultContext` when MUMmer execution should be
+cancellable through a `context.Context`.
+
 The default runner uses:
 
 - `nucmer`, not `promer`
@@ -243,6 +250,9 @@ runner := mummergo.NewRunner(
     mummergo.WithSnpsHeader(false),
 )
 ```
+
+Verbose runner output goes to standard output by default. Use `WithLogWriter`
+to send it to another `io.Writer`.
 
 For large runs, or when the system temp directory is not appropriate, choose
 the parent directory used for temporary files:

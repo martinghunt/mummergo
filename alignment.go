@@ -23,67 +23,81 @@ type Alignment struct {
 
 func NewAlignment(line string) (Alignment, error) {
 	fields := strings.Split(strings.TrimRight(line, "\r\n"), "\t")
-	parseInt := func(i int) (int, error) {
+	parseInt := func(i int, name string) (int, error) {
 		if i < 0 || i >= len(fields) {
-			return 0, fmt.Errorf("field %d missing", i)
+			return 0, fmt.Errorf("field %q at index %d missing", name, i)
 		}
-		return strconv.Atoi(fields[i])
+		v, err := strconv.Atoi(fields[i])
+		if err != nil {
+			return 0, fmt.Errorf("field %q at index %d: %w", name, i, err)
+		}
+		return v, nil
+	}
+	parseFloat := func(i int, name string) (float64, error) {
+		if i < 0 || i >= len(fields) {
+			return 0, fmt.Errorf("field %q at index %d missing", name, i)
+		}
+		v, err := strconv.ParseFloat(fields[i], 64)
+		if err != nil {
+			return 0, fmt.Errorf("field %q at index %d: %w", name, i, err)
+		}
+		return v, nil
 	}
 
 	var a Alignment
 	var err error
-	refStart, err := parseInt(0)
+	refStart, err := parseInt(0, "reference start")
 	if err != nil {
-		return Alignment{}, alignmentParseError(line)
+		return Alignment{}, alignmentParseError(line, err)
 	}
-	refEnd, err := parseInt(1)
+	refEnd, err := parseInt(1, "reference end")
 	if err != nil {
-		return Alignment{}, alignmentParseError(line)
+		return Alignment{}, alignmentParseError(line, err)
 	}
-	qryStart, err := parseInt(2)
+	qryStart, err := parseInt(2, "query start")
 	if err != nil {
-		return Alignment{}, alignmentParseError(line)
+		return Alignment{}, alignmentParseError(line, err)
 	}
-	qryEnd, err := parseInt(3)
+	qryEnd, err := parseInt(3, "query end")
 	if err != nil {
-		return Alignment{}, alignmentParseError(line)
+		return Alignment{}, alignmentParseError(line, err)
 	}
 	a.RefStart, a.RefEnd = fromMummerOrientedCoords(refStart, refEnd)
 	a.QryStart, a.QryEnd = fromMummerOrientedCoords(qryStart, qryEnd)
-	if a.HitLengthRef, err = parseInt(4); err != nil {
-		return Alignment{}, alignmentParseError(line)
+	if a.HitLengthRef, err = parseInt(4, "reference hit length"); err != nil {
+		return Alignment{}, alignmentParseError(line, err)
 	}
-	if a.HitLengthQry, err = parseInt(5); err != nil {
-		return Alignment{}, alignmentParseError(line)
+	if a.HitLengthQry, err = parseInt(5, "query hit length"); err != nil {
+		return Alignment{}, alignmentParseError(line, err)
 	}
 	if len(fields) <= 12 {
-		return Alignment{}, alignmentParseError(line)
+		return Alignment{}, alignmentParseError(line, fmt.Errorf("expected at least 13 tab-delimited fields, got %d", len(fields)))
 	}
-	if a.PercentIdentity, err = strconv.ParseFloat(fields[6], 64); err != nil {
-		return Alignment{}, alignmentParseError(line)
+	if a.PercentIdentity, err = parseFloat(6, "percent identity"); err != nil {
+		return Alignment{}, alignmentParseError(line, err)
 	}
 
 	if len(fields) >= 15 {
-		if a.RefLength, err = parseInt(9); err != nil {
-			return Alignment{}, alignmentParseError(line)
+		if a.RefLength, err = parseInt(9, "reference length"); err != nil {
+			return Alignment{}, alignmentParseError(line, err)
 		}
-		if a.QryLength, err = parseInt(10); err != nil {
-			return Alignment{}, alignmentParseError(line)
+		if a.QryLength, err = parseInt(10, "query length"); err != nil {
+			return Alignment{}, alignmentParseError(line, err)
 		}
-		if a.Frame, err = parseInt(11); err != nil {
-			return Alignment{}, alignmentParseError(line)
+		if a.Frame, err = parseInt(11, "frame"); err != nil {
+			return Alignment{}, alignmentParseError(line, err)
 		}
 		a.RefName = fields[13]
 		a.QryName = fields[14]
 	} else {
-		if a.RefLength, err = parseInt(7); err != nil {
-			return Alignment{}, alignmentParseError(line)
+		if a.RefLength, err = parseInt(7, "reference length"); err != nil {
+			return Alignment{}, alignmentParseError(line, err)
 		}
-		if a.QryLength, err = parseInt(8); err != nil {
-			return Alignment{}, alignmentParseError(line)
+		if a.QryLength, err = parseInt(8, "query length"); err != nil {
+			return Alignment{}, alignmentParseError(line, err)
 		}
-		if a.Frame, err = parseInt(9); err != nil {
-			return Alignment{}, alignmentParseError(line)
+		if a.Frame, err = parseInt(9, "frame"); err != nil {
+			return Alignment{}, alignmentParseError(line, err)
 		}
 		a.RefName = fields[11]
 		a.QryName = fields[12]
@@ -100,8 +114,8 @@ func MustAlignment(line string) Alignment {
 	return a
 }
 
-func alignmentParseError(line string) error {
-	return fmt.Errorf("error reading this nucmer line:\n%s", line)
+func alignmentParseError(line string, cause error) error {
+	return fmt.Errorf("error reading this nucmer line: %w\n%s", cause, line)
 }
 
 func fromMummerOrientedCoords(start, end int) (int, int) {
@@ -178,11 +192,13 @@ func (a Alignment) IntersectsVariant(v Variant) bool {
 }
 
 func (a Alignment) QryCoordsFromRefCoord(refCoord int, variants []Variant) (int, bool, error) {
-	if a.RefCoords().DistanceToPoint(refCoord) > 0 {
+	refRange := a.RefCoords()
+	qryRange := a.QryCoords()
+	if !refRange.Contains(refCoord) {
 		return 0, false, fmt.Errorf("cannot get query coord in QryCoordsFromRefCoord because given ref_coord %d does not lie in nucmer alignment:\n%s", refCoord, a.String())
 	}
 
-	indelIndexes := make([]int, 0)
+	indelAdjustment := 0
 	for i := range variants {
 		if variants[i].Type != Ins && variants[i].Type != Del {
 			continue
@@ -194,20 +210,15 @@ func (a Alignment) QryCoordsFromRefCoord(refCoord int, variants []Variant) (int,
 			return variants[i].QryStart, true, nil
 		}
 		if variants[i].RefStart < refCoord {
-			indelIndexes = append(indelIndexes, i)
+			if variants[i].Type == Ins {
+				indelAdjustment += len(variants[i].QryBase)
+			} else {
+				indelAdjustment -= len(variants[i].RefBase)
+			}
 		}
 	}
 
-	refRange := a.RefCoords()
-	qryRange := a.QryCoords()
-	distance := refCoord - refRange.Start
-	for _, i := range indelIndexes {
-		if variants[i].Type == Ins {
-			distance += len(variants[i].QryBase)
-		} else {
-			distance -= len(variants[i].RefBase)
-		}
-	}
+	distance := refCoord - refRange.Start + indelAdjustment
 
 	if a.OnSameStrand() {
 		return qryRange.Start + distance, false, nil
@@ -216,11 +227,13 @@ func (a Alignment) QryCoordsFromRefCoord(refCoord int, variants []Variant) (int,
 }
 
 func (a Alignment) RefCoordsFromQryCoord(qryCoord int, variants []Variant) (int, bool, error) {
-	if a.QryCoords().DistanceToPoint(qryCoord) > 0 {
+	qryRange := a.QryCoords()
+	refRange := a.RefCoords()
+	if !qryRange.Contains(qryCoord) {
 		return 0, false, fmt.Errorf("cannot get ref coord in RefCoordsFromQryCoord because given qry_coord %d does not lie in nucmer alignment:\n%s", qryCoord, a.String())
 	}
 
-	indelIndexes := make([]int, 0)
+	indelAdjustment := 0
 	for i := range variants {
 		if variants[i].Type != Ins && variants[i].Type != Del {
 			continue
@@ -232,20 +245,15 @@ func (a Alignment) RefCoordsFromQryCoord(qryCoord int, variants []Variant) (int,
 			return variants[i].RefStart, true, nil
 		}
 		if variants[i].QryStart < qryCoord {
-			indelIndexes = append(indelIndexes, i)
+			if variants[i].Type == Del {
+				indelAdjustment += len(variants[i].RefBase)
+			} else {
+				indelAdjustment -= len(variants[i].QryBase)
+			}
 		}
 	}
 
-	qryRange := a.QryCoords()
-	refRange := a.RefCoords()
-	distance := qryCoord - qryRange.Start
-	for _, i := range indelIndexes {
-		if variants[i].Type == Del {
-			distance += len(variants[i].RefBase)
-		} else {
-			distance -= len(variants[i].QryBase)
-		}
-	}
+	distance := qryCoord - qryRange.Start + indelAdjustment
 
 	if a.OnSameStrand() {
 		return refRange.Start + distance, false, nil

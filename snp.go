@@ -21,33 +21,47 @@ type Snp struct {
 func NewSnp(line string) (Snp, error) {
 	fields := strings.Split(strings.TrimRight(line, "\r\n"), "\t")
 	if len(fields) < 12 {
-		return Snp{}, snpParseError(line)
+		return Snp{}, snpParseError(line, fmt.Errorf("expected at least 12 tab-delimited fields, got %d", len(fields)))
 	}
-	refPos, err := strconv.Atoi(fields[0])
-	if err != nil {
-		return Snp{}, snpParseError(line)
+	parseInt := func(i int, name string) (int, error) {
+		if i < 0 || i >= len(fields) {
+			return 0, fmt.Errorf("field %q at index %d missing", name, i)
+		}
+		v, err := strconv.Atoi(fields[i])
+		if err != nil {
+			return 0, fmt.Errorf("field %q at index %d: %w", name, i, err)
+		}
+		return v, nil
 	}
-	qryPos, err := strconv.Atoi(fields[3])
+
+	refPos, err := parseInt(0, "reference position")
 	if err != nil {
-		return Snp{}, snpParseError(line)
+		return Snp{}, snpParseError(line, err)
 	}
-	refLength, err := strconv.Atoi(fields[len(fields)-6])
+	qryPos, err := parseInt(3, "query position")
 	if err != nil {
-		return Snp{}, snpParseError(line)
+		return Snp{}, snpParseError(line, err)
 	}
-	qryLength, err := strconv.Atoi(fields[len(fields)-5])
+	refLengthIndex := len(fields) - 6
+	refLength, err := parseInt(refLengthIndex, "reference length")
 	if err != nil {
-		return Snp{}, snpParseError(line)
+		return Snp{}, snpParseError(line, err)
+	}
+	qryLengthIndex := len(fields) - 5
+	qryLength, err := parseInt(qryLengthIndex, "query length")
+	if err != nil {
+		return Snp{}, snpParseError(line, err)
 	}
 
 	var reverse bool
-	switch fields[len(fields)-3] {
+	reverseIndex := len(fields) - 3
+	switch fields[reverseIndex] {
 	case "1":
 		reverse = false
 	case "-1":
 		reverse = true
 	default:
-		return Snp{}, snpParseError(line)
+		return Snp{}, snpParseError(line, fmt.Errorf("field %q at index %d: expected 1 or -1, got %q", "reverse", reverseIndex, fields[reverseIndex]))
 	}
 
 	return Snp{
@@ -71,8 +85,8 @@ func MustSnp(line string) Snp {
 	return s
 }
 
-func snpParseError(line string) error {
-	return fmt.Errorf("error constructing Snp from mummer show-snps output at this line:\n%s", line)
+func snpParseError(line string, cause error) error {
+	return fmt.Errorf("error constructing Snp from mummer show-snps output at this line: %w\n%s", cause, line)
 }
 
 func (s Snp) String() string {
